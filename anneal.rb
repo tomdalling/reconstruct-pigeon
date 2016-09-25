@@ -9,9 +9,10 @@ class Window < Gosu::Window
     @accum = Magick::Image.new(@target_image.columns, @target_image.rows) { self.background_color = 'none'}
     @output = Gosu::Image.new(@accum)
     @running = false
-    @max_draw = 20
+    @max_draw = @target_image.columns * 0.2
     @colors = []
-    @target_image.quantize(20).unique_colors.each_pixel { |p| @colors << p.to_color }
+    @coord_queue = []
+    @target_image.quantize(20).unique_colors.each_pixel { |p| @colors << p }
     puts "Using #{@colors.size} colors"
 
     @last_comp_update = 0
@@ -58,70 +59,85 @@ class Window < Gosu::Window
     attempt = @accum.copy
     rect = draw_random(attempt)
     if closer(attempt, *rect)
-      print 'Y'
       @comps += 1
       @accum.destroy!
       @accum = attempt
       @needs_redraw = true
     else
-      print '.'
       attempt.destroy!
     end
   end
 
   def closer(img, x, y, w, h)
-    diff = 0
-    largest_wrongness = 0
-    most_wrong = nil
+    current_diff = 0.0
+    attempt_diff = 0.0
+    target_image = @target_image
+    accum = @accum
 
-    (x...(x+w)).each do |px|
-      (y...(y+h)).each do |py|
-        target_pix = @target_image.pixel_color(px, py)
-        current_pix = @accum.pixel_color(px, py)
-        attempt_pix = img.pixel_color(px, py)
-        #wrongness = 0
-
-        [:red, :green, :blue].each do |channel|
-          target = target_pix.send(channel)
-          current_diff = (target - current_pix.send(channel)).abs
-          attempt_diff = (target - attempt_pix.send(channel)).abs
-          diff += (attempt_diff <= current_diff ? 1 : -1)
-          #wrongness += current_diff
-        end
-
-        #if wrongness > largest_wrongness
-          #largest_wrongness = wrongness
-          #most_wrong = [px, py]
-        #end
+    (x..(x+w)).each do |px|
+      (y..(y+h)).each do |py|
+        target = target_image.pixel_color(px, py)
+        current_diff += color_diff(target, accum.pixel_color(px, py))
+        attempt_diff += color_diff(target, img.pixel_color(px, py))
       end
     end
 
-    #@most_wrong = most_wrong
-
-    diff >= 0
+    attempt_diff < current_diff
   end
 
   def draw_random(img)
-    if @most_wrong && rand < 0.5
-      x, y = @most_wrong
-    else
-      x = rand(0...width)
-      y = rand(0...height)
+    if @coord_queue.empty?
+      enqueue_coords!
+      puts "Requeued #{@coord_queue.size}"
     end
 
+    x, y, color = @coord_queue.shift
     w = rand(1.0...@max_draw) || 1
     h = rand(1.0...@max_draw) || 1
-
-    color = @colors.sample
 
     circle = Magick::Draw.new
     circle.fill(color)
     circle.ellipse(x, y, w, h, 0, 360)
     circle.draw(img)
 
-    rx = (Float(width) / 2.0).ceil
-    ry = (Float(height) / 2.0).ceil
-    [x - rx, y - ry, 2*rx, 2*ry]
+    rx = Float(w) / 2.0
+    ry = Float(h) / 2.0
+    [(x - rx).floor, (y - ry).floor, 2*rx.ceil, 2*ry.ceil]
+  end
+
+  def enqueue_coords!
+    @max_draw = (@max_draw <= 3 ? 3 : @max_draw * 0.90)
+
+    step = Float(@max_draw) * 0.75
+
+    0.step(by: step, to: width).flat_map do |x|
+      0.step(by: step, to: height).map do |y|
+        target = @target_image.pixel_color(x, y)
+        current = @accum.pixel_color(x, y)
+        diff = color_diff(target, current)
+        color = closest_color(target)
+        @coord_queue << [x, y, color, diff]
+      end
+    end
+
+    @coord_queue.sort_by!(&:last)
+    @coord_queue.reverse!
+    @coord_queue.pop((@coord_queue.size * 0.7).floor)
+  end
+
+  def closest_color(target)
+    @colors
+      .min_by{ |c| color_diff(c, target) }
+      .to_color
+  end
+
+  def color_diff(c1, c2)
+    dmax = 65535.0
+    dr = (c1.red - c2.red).abs
+    dg = (c1.green - c2.green).abs
+    db = (c1.blue - c2.blue).abs
+
+    dr/dmax + dg/dmax + db/dmax
   end
 end
 
