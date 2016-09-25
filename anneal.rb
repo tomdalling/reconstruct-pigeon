@@ -5,15 +5,12 @@ require 'rmagick'
 class Window < Gosu::Window
   def initialize
     @needs_redraw = true
-    @target_image = Magick::Image::read('alan2.jpg').first
+    @target_image = Magick::Image::read('alan3.jpg').first
     @accum = Magick::Image.new(@target_image.columns, @target_image.rows) { self.background_color = 'none'}
     @output = Gosu::Image.new(@accum)
     @running = false
     @max_draw = @target_image.columns * 0.2
-    @colors = []
     @coord_queue = []
-    @target_image.quantize(20).unique_colors.each_pixel { |p| @colors << p }
-    puts "Using #{@colors.size} colors"
 
     @last_comp_update = 0
     @comps = 0
@@ -115,7 +112,7 @@ class Window < Gosu::Window
         target = @target_image.pixel_color(x, y)
         current = @accum.pixel_color(x, y)
         diff = color_diff(target, current)
-        color = closest_color(target)
+        color = target.to_color
         @coord_queue << [x, y, color, diff]
       end
     end
@@ -123,12 +120,6 @@ class Window < Gosu::Window
     @coord_queue.sort_by!(&:last)
     @coord_queue.reverse!
     @coord_queue.pop((@coord_queue.size * 0.7).floor)
-  end
-
-  def closest_color(target)
-    @colors
-      .min_by{ |c| color_diff(c, target) }
-      .to_color
   end
 
   def color_diff(c1, c2)
